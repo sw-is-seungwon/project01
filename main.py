@@ -125,38 +125,43 @@ st.html(f"""
 # 7. 게임 메인 로직
 if st.session_state["game_active"]:
     
-    # 💥 [버그 해결 핵심] 타자 입력 처리 및 정답 판정을 '위치 이동' 연산보다 먼저 수행합니다!
+    # 💥 타자 입력 처리 포커스
     with st.form(key="typer_form", clear_on_submit=True):
-        user_input = st.text_input("✍️ 단비를 내릴 단어를 입력하고 [Enter]를 누르세요!", placeholder="여기에 입력하세요", label_visibility="collapsed")
+        user_input = st.text_input("✍ Honor Word", placeholder="여기에 입력하세요", label_visibility="collapsed")
         st.html("<div style='display:none;'>")
         submit_word = st.form_submit_button("⌨️ 정답 확인")
         st.html("</div>")
 
-        if user_input:
+        # 🛠️ [해결 1] 사용자가 아무것도 치지 않고 엔터했거나 실시간 루프로 재생성된 빈 입력값("")은 검사 자체를 패스!
+        if user_input and user_input.strip() != "":
             input_clean = user_input.strip()
-            matched = False
+            matched_index = -1
+            max_top = -1
             
-            # 현재 화면에 있는 단어 중 매칭되는 것이 있는지 찾아서 즉시 제거
-            for w in st.session_state["words"]:
+            # 🛠️ [해결 2] 화면에 떠 있는 동일 단어 중 가장 아래에 있는(Y좌표 'top'이 가장 큰) 단어 하나의 위치를 검색합니다.
+            for i, w in enumerate(st.session_state["words"]):
                 if w["text"] == input_clean:
-                    st.session_state["words"].remove(w)
-                    st.session_state["score"] += 10
-                    matched = True
-                    break
+                    if w["top"] > max_top:
+                        max_top = w["top"]
+                        matched_index = i
             
-            if matched:
+            # 매칭된 단어가 있다면 리스트에서 '딱 하나만' 골라 제거
+            if matched_index != -1:
+                st.session_state["words"].pop(matched_index)
+                st.session_state["score"] += 10
                 st.toast("🌱 단비가 내려 땅이 촉촉해집니다!", icon="💧")
             else:
+                # 정말로 오타를 냈을 때만 토스트 팝업 활성화
                 st.toast("❌ 오타가 났어요! 다시 집중해 봐요!", icon="⚠️")
 
-    # [단어 하강 연산] 입력 판정이 끝난 후 단어들을 아래로 떨어뜨립니다.
+    # [단어 하강 연산]
     current_time = time.time()
     alive_words = []
     for w in st.session_state["words"]:
-        if w["top"] >= 310:  # 바닥 한계선에 닿으면 감점
+        if w["top"] >= 310:  
             st.session_state["life"] -= 1
         else:
-            w["top"] += 20  # 부드러운 하강을 위해 낙하 거리 소폭 조정
+            w["top"] += 20  
             alive_words.append(w)
             
     st.session_state["words"] = alive_words
@@ -168,17 +173,15 @@ if st.session_state["game_active"]:
         st.session_state["words"] = []
         st.rerun()
 
-    # [신규 단어 스폰] 2초가 지나고 화면에 단어가 4개 미만일 때만 새 단어 추가
+    # [신규 단어 스폰] 중복 단어 낙하도 게임의 재미 요소이므로 pool 내 무작위 생성 허용
     if current_time - st.session_state["last_spawn_time"] > 2.0 and len(st.session_state["words"]) < 4:
-        new_word_text = random.choice(WORD_POOL)
-        if new_word_text not in [w["text"] for w in st.session_state["words"]]:
-            new_word = {
-                "text": new_word_text,
-                "top": 10,                 
-                "left": random.randint(15, 75) 
-            }
-            st.session_state["words"].append(new_word)
-            st.session_state["last_spawn_time"] = current_time
+        new_word = {
+            "text": random.choice(WORD_POOL),
+            "top": 10,                 
+            "left": random.randint(15, 75) 
+        }
+        st.session_state["words"].append(new_word)
+        st.session_state["last_spawn_time"] = current_time
 
     # 8. 실시간 게임 화면 그리기
     words_html = ""
@@ -187,7 +190,7 @@ if st.session_state["game_active"]:
 
     st.html(f"<div class='game-board'>{words_html}</div>")
 
-    # 0.5초마다 루프를 돌며 리프레시 수행
+    # 0.5초마다 루프 재생성
     time.sleep(0.5)
     st.rerun()
 
