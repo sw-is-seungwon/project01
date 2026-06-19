@@ -113,7 +113,7 @@ WORD_POOL = [
 if "game_active" not in st.session_state:
     st.session_state["game_active"] = False
 if "game_status" not in st.session_state:
-    st.session_state["game_status"] = "ready"  # ready, playing, gameover, timeout
+    st.session_state["game_status"] = "ready"  
 if "score" not in st.session_state:
     st.session_state["score"] = 0
 if "life" not in st.session_state:
@@ -126,6 +126,9 @@ if "start_time" not in st.session_state:
     st.session_state["start_time"] = 0.0
 if "last_spawn_time" not in st.session_state:
     st.session_state["last_spawn_time"] = time.time()
+# 🛠️ 잔상 해결을 위한 임시 텍스트 홀더 변수 추가
+if "typed_buffer" not in st.session_state:
+    st.session_state["typed_buffer"] = ""
 
 # 4. 타이틀 구성
 st.html("<div class='main-title'>💧 단비 내리는 날 🌸</div>")
@@ -141,7 +144,8 @@ with col_btn1:
         st.session_state["life"] = 5
         st.session_state["words"] = []
         st.session_state["popped_words"] = []
-        st.session_state["start_time"] = time.time() # 시작 시간 기록
+        st.session_state["typed_buffer"] = "" # 버퍼 초기화
+        st.session_state["start_time"] = time.time() 
         st.session_state["last_spawn_time"] = time.time()
         st.rerun()
 
@@ -157,13 +161,12 @@ if st.session_state["game_active"]:
     elapsed = int(time.time() - st.session_state["start_time"])
     time_left = max(0, 180 - elapsed)
     
-    # ⏱️ 시간이 종료되었을 때 판정
     if time_left <= 0:
         st.session_state["game_active"] = False
         st.session_state["game_status"] = "timeout"
         st.rerun()
 
-# 6. 상단 스탯 표시창 (남은 시간 추가)
+# 6. 상단 스탯 표시창
 min_str = f"{time_left // 60:02d}"
 sec_str = f"{time_left % 60:02d}"
 st.html(f"""
@@ -178,27 +181,40 @@ st.html(f"""
 if st.session_state["game_status"] == "playing" and st.session_state["game_active"]:
     st.session_state["popped_words"] = []
 
-    # 입력 처리
+    # 콜백 함수: 사용자가 단어를 치고 엔터를 누르는 순간 버퍼에 값을 담고 폼은 완전히 리셋시킵니다.
+    def handle_submit():
+        st.session_state["typed_buffer"] = st.session_state["input_field"].strip()
+        st.session_state["input_field"] = ""
+
+    # 입력 처리 (안전한 key 매핑 기법 활용)
     with st.form(key="typer_form", clear_on_submit=True):
-        user_input = st.text_input("✍ Input Word", placeholder="여기에 입력하세요", label_visibility="collapsed")
+        st.text_input(
+            "✍ Input Word", 
+            placeholder="여기에 입력하세요", 
+            label_visibility="collapsed",
+            key="input_field" # 데이터 세션과 직접 연결
+        )
         st.html("<div style='display:none;'>")
-        submit_word = st.form_submit_button("⌨️")
+        st.form_submit_button("⌨️", on_click=handle_submit) # 클릭(엔터) 시 콜백 발동
         st.html("</div>")
 
-        if user_input and user_input.strip() != "":
-            input_clean = user_input.strip()
-            matched_target = None
-            
-            for w in st.session_state["words"]:
-                if w["text"] == input_clean:
-                    if matched_target is None or w["top"] > matched_target["top"]:
-                        matched_target = w
+    # 💥 [버그 해결 핵심] 버퍼에 저장된 입력값이 있을 때 딱 1번만 매칭 연산 수행 후 버퍼를 즉시 비웁니다!
+    if st.session_state["typed_buffer"] != "":
+        input_clean = st.session_state["typed_buffer"]
+        st.session_state["typed_buffer"] = "" # 단 한 번만 검사하도록 즉시 기화! 🪄
+        
+        matched_target = None
+        # 화면에 있는 중복 단어 중 가장 아래에 있는 단어 '하나'만 조준
+        for w in st.session_state["words"]:
+            if w["text"] == input_clean:
+                if matched_target is None or w["top"] > matched_target["top"]:
+                    matched_target = w
 
-            if matched_target is not None:
-                st.session_state["words"].remove(matched_target)
-                st.session_state["score"] += 10
-                matched_target["text"] = matched_target["text"] + " 🫧"
-                st.session_state["popped_words"].append(matched_target)
+        if matched_target is not None:
+            st.session_state["words"].remove(matched_target)
+            st.session_state["score"] += 10
+            matched_target["text"] = matched_target["text"] + " 🫧"
+            st.session_state["popped_words"].append(matched_target)
 
     # 단어 하강 연산
     current_time = time.time()
@@ -241,7 +257,6 @@ if st.session_state["game_status"] == "playing" and st.session_state["game_activ
     st.rerun()
 
 elif st.session_state["game_status"] == "timeout":
-    # 🏁 3분 종료 기쁨의 대형 전광판 
     st.html(f"""
         <div class='game-over-box'>
             <h1 style='color: #77A605; margin-top:0;'>🎉 제한시간 종료! 🎉</h1>
@@ -252,10 +267,9 @@ elif st.session_state["game_status"] == "timeout":
             <p style='color: #888;'>[게임 시작하기]를 누르면 언제든 다시 도전할 수 있어요 🌱</p>
         </div>
     """)
-    st.balloons() # 3분 완주 축하 풍선
+    st.balloons() 
 
 elif st.session_state["game_status"] == "gameover":
-    # 💔 라이프 소진 대형 전광판
     st.html(f"""
         <div class='game-over-box' style='border-color: #aaa;'>
             <h1 style='color: #777; margin-top:0;'>🧱 대지가 메말랐어요 😭</h1>
@@ -268,7 +282,6 @@ elif st.session_state["game_status"] == "gameover":
     """)
 
 else:
-    # 게임 시작 전 대기 화면
     st.html(
         """
         <div class='game-board' style='display:flex; justify-content:center; align-items:center; flex-direction:column; color:#888;'>
