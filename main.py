@@ -169,7 +169,11 @@ if st.session_state["game_active"]:
     # 9. 타자 입력창 (Form 구성으로 치고 엔터 누르면 리셋)
     with st.form(key="typer_form", clear_on_submit=True):
         user_input = st.text_input("✍️ 단비를 내릴 단어를 입력하고 [Enter]를 누르세요!", placeholder="여기에 입력하세요", label_visibility="collapsed")
-        submit_word = st.form_submit_button("⌨️ 정답 확인", visual="hidden") # 버튼은 숨기고 엔터 작용
+        
+        # HTML/CSS 스타일로 버튼을 감싸서 화면에서 완전히 안 보이게 숨깁니다.
+        st.html("<div style='display:none;'>")
+        submit_word = st.form_submit_button("⌨️ 정답 확인")
+        st.html("</div>")
 
         if user_input:
             input_clean = user_input.strip()
