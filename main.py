@@ -55,7 +55,6 @@ st.html(
         font-weight: bold;
         color: #444;
         box-shadow: 0px 3px 6px rgba(0,0,0,0.05);
-        transition: top 0.4s linear, left 0.4s ease;
     }
     /* 점수판 스타일 */
     .status-container {
@@ -91,7 +90,7 @@ if "score" not in st.session_state:
 if "life" not in st.session_state:
     st.session_state["life"] = 5
 if "words" not in st.session_state:
-    st.session_state["words"] = []  # 현재 화면에 떠 있는 단어들 정보 [{"text": 단어, "top": y좌표, "left": x좌표}]
+    st.session_state["words"] = []  
 if "last_spawn_time" not in st.session_state:
     st.session_state["last_spawn_time"] = time.time()
 
@@ -125,16 +124,39 @@ st.html(f"""
 
 # 7. 게임 메인 로직
 if st.session_state["game_active"]:
-    current_time = time.time()
     
-    # [라이프 마이너스 조건] 바닥에 닿은 단어 처리
+    # 💥 [버그 해결 핵심] 타자 입력 처리 및 정답 판정을 '위치 이동' 연산보다 먼저 수행합니다!
+    with st.form(key="typer_form", clear_on_submit=True):
+        user_input = st.text_input("✍️ 단비를 내릴 단어를 입력하고 [Enter]를 누르세요!", placeholder="여기에 입력하세요", label_visibility="collapsed")
+        st.html("<div style='display:none;'>")
+        submit_word = st.form_submit_button("⌨️ 정답 확인")
+        st.html("</div>")
+
+        if user_input:
+            input_clean = user_input.strip()
+            matched = False
+            
+            # 현재 화면에 있는 단어 중 매칭되는 것이 있는지 찾아서 즉시 제거
+            for w in st.session_state["words"]:
+                if w["text"] == input_clean:
+                    st.session_state["words"].remove(w)
+                    st.session_state["score"] += 10
+                    matched = True
+                    break
+            
+            if matched:
+                st.toast("🌱 단비가 내려 땅이 촉촉해집니다!", icon="💧")
+            else:
+                st.toast("❌ 오타가 났어요! 다시 집중해 봐요!", icon="⚠️")
+
+    # [단어 하강 연산] 입력 판정이 끝난 후 단어들을 아래로 떨어뜨립니다.
+    current_time = time.time()
     alive_words = []
     for w in st.session_state["words"]:
-        if w["top"] >= 310:  # 보드 바닥 한계선
+        if w["top"] >= 310:  # 바닥 한계선에 닿으면 감점
             st.session_state["life"] -= 1
         else:
-            # 아직 바닥에 안 닿았다면 아래로 한 칸 떨어뜨리기
-            w["top"] += 25  # 떨어지는 속도 조절
+            w["top"] += 20  # 부드러운 하강을 위해 낙하 거리 소폭 조정
             alive_words.append(w)
             
     st.session_state["words"] = alive_words
@@ -146,15 +168,14 @@ if st.session_state["game_active"]:
         st.session_state["words"] = []
         st.rerun()
 
-    # [단어 생성] 일정 시간이 지나면 새로운 단어 추가 (화면에 단어가 너무 많지 않게 조절)
+    # [신규 단어 스폰] 2초가 지나고 화면에 단어가 4개 미만일 때만 새 단어 추가
     if current_time - st.session_state["last_spawn_time"] > 2.0 and len(st.session_state["words"]) < 4:
         new_word_text = random.choice(WORD_POOL)
-        # 이미 화면에 있는 단어는 중복 생성 방지
         if new_word_text not in [w["text"] for w in st.session_state["words"]]:
             new_word = {
                 "text": new_word_text,
-                "top": 10,                 # 최상단에서 시작
-                "left": random.randint(15, 75) # x좌표를 퍼센트(%) 비율로 무작위 배치
+                "top": 10,                 
+                "left": random.randint(15, 75) 
             }
             st.session_state["words"].append(new_word)
             st.session_state["last_spawn_time"] = current_time
@@ -166,35 +187,8 @@ if st.session_state["game_active"]:
 
     st.html(f"<div class='game-board'>{words_html}</div>")
 
-    # 9. 타자 입력창 (Form 구성으로 치고 엔터 누르면 리셋)
-    with st.form(key="typer_form", clear_on_submit=True):
-        user_input = st.text_input("✍️ 단비를 내릴 단어를 입력하고 [Enter]를 누르세요!", placeholder="여기에 입력하세요", label_visibility="collapsed")
-        
-        # HTML/CSS 스타일로 버튼을 감싸서 화면에서 완전히 안 보이게 숨깁니다.
-        st.html("<div style='display:none;'>")
-        submit_word = st.form_submit_button("⌨️ 정답 확인")
-        st.html("</div>")
-
-        if user_input:
-            input_clean = user_input.strip()
-            matched = False
-            
-            # 입력한 단어가 화면에 떠 있는지 검사
-            for w in st.session_state["words"]:
-                if w["text"] == input_clean:
-                    st.session_state["words"].remove(w)
-                    st.session_state["score"] += 10
-                    matched = True
-                    break
-            
-            if matched:
-                st.toast("🌱 단비가 내려 땅이 촉촉해집니다!", icon="💧")
-                st.rerun()
-            else:
-                st.toast("❌ 오타가 났어요! 다시 집중해 봐요!", icon="⚠️")
-
-    # 0.4초마다 화면을 새로고침하여 단어가 떨어지는 애니메이션 연출
-    time.sleep(0.4)
+    # 0.5초마다 루프를 돌며 리프레시 수행
+    time.sleep(0.5)
     st.rerun()
 
 else:
