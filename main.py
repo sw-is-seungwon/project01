@@ -9,7 +9,7 @@ st.set_page_config(
     layout="centered",
 )
 
-# 2. 봄날의 단비 파스텔 CSS 스타일
+# 2. 봄날의 단비 파스텔 CSS 및 터지는 애니메이션(Pop) 스타일 적용
 st.html(
     """
     <style>
@@ -44,7 +44,7 @@ st.html(
         margin-bottom: 20px;
         box-shadow: 0px 6px 15px rgba(0,0,0,0.03);
     }
-    /* 떨어지는 단어 스타일 */
+    /* 떨어지는 단어 기본 스타일 */
     .word-drop {
         position: absolute;
         background-color: #FFFFFF;
@@ -56,6 +56,35 @@ st.html(
         color: #444;
         box-shadow: 0px 3px 6px rgba(0,0,0,0.05);
     }
+    /* 🎉 비눗방울처럼 팡! 터지는 팝 애니메이션 클래스 */
+    .word-pop {
+        position: absolute;
+        background-color: #E8F5E9;
+        padding: 6px 14px;
+        border-radius: 50%;
+        border: 2px solid #B5FFFC;
+        font-size: 1.3rem;
+        font-weight: bold;
+        color: #FF8E9E;
+        animation: bubblePop 0.4s ease-out forwards;
+    }
+
+    @keyframes bubblePop {
+        0% {
+            transform: scale(1);
+            opacity: 1;
+        }
+        50% {
+            transform: scale(1.4) translateY(-10px);
+            background-color: #FFF0F2;
+            opacity: 0.8;
+        }
+        100% {
+            transform: scale(1.8) translateY(-20px);
+            opacity: 0;
+        }
+    }
+
     /* 점수판 스타일 */
     .status-container {
         display: flex;
@@ -91,6 +120,8 @@ if "life" not in st.session_state:
     st.session_state["life"] = 5
 if "words" not in st.session_state:
     st.session_state["words"] = []  
+if "popped_words" not in st.session_state:
+    st.session_state["popped_words"] = []  # 터지는 효과 중인 단어 보관소
 if "last_spawn_time" not in st.session_state:
     st.session_state["last_spawn_time"] = time.time()
 
@@ -106,6 +137,7 @@ with col_btn1:
         st.session_state["score"] = 0
         st.session_state["life"] = 5
         st.session_state["words"] = []
+        st.session_state["popped_words"] = []
         st.session_state["last_spawn_time"] = time.time()
         st.rerun()
 
@@ -125,34 +157,35 @@ st.html(f"""
 # 7. 게임 메인 로직
 if st.session_state["game_active"]:
     
-    # 💥 타자 입력 처리 포커스
+    # 터지는 연출이 끝난 비눗방울들은 리스트에서 비워주기
+    st.session_state["popped_words"] = []
+
+    # 💥 입력 처리 및 중복 단어 동시 삭제 버그 해결
     with st.form(key="typer_form", clear_on_submit=True):
-        user_input = st.text_input("✍ Honor Word", placeholder="여기에 입력하세요", label_visibility="collapsed")
+        user_input = st.text_input("✍ Input Word", placeholder="여기에 입력하세요", label_visibility="collapsed")
         st.html("<div style='display:none;'>")
         submit_word = st.form_submit_button("⌨️ 정답 확인")
         st.html("</div>")
 
-        # 🛠️ [해결 1] 사용자가 아무것도 치지 않고 엔터했거나 실시간 루프로 재생성된 빈 입력값("")은 검사 자체를 패스!
         if user_input and user_input.strip() != "":
             input_clean = user_input.strip()
-            matched_index = -1
-            max_top = -1
+            matched_target = None
             
-            # 🛠️ [해결 2] 화면에 떠 있는 동일 단어 중 가장 아래에 있는(Y좌표 'top'이 가장 큰) 단어 하나의 위치를 검색합니다.
-            for i, w in enumerate(st.session_state["words"]):
+            # 🛠️ [중복 제거 버그 완전 차단] 
+            # 가장 바닥에 가까운(top이 가장 큰) 단어 '딱 하나'만 골라냅니다.
+            for w in st.session_state["words"]:
                 if w["text"] == input_clean:
-                    if w["top"] > max_top:
-                        max_top = w["top"]
-                        matched_index = i
-            
-            # 매칭된 단어가 있다면 리스트에서 '딱 하나만' 골라 제거
-            if matched_index != -1:
-                st.session_state["words"].pop(matched_index)
+                    if matched_target is None or w["top"] > matched_target["top"]:
+                        matched_target = w
+
+            # 매칭된 단어가 있다면 리스트에서 제거하고 이펙트 창으로 보냄
+            if matched_target is not None:
+                st.session_state["words"].remove(matched_target)
                 st.session_state["score"] += 10
-                st.toast("🌱 단비가 내려 땅이 촉촉해집니다!", icon="💧")
-            else:
-                # 정말로 오타를 냈을 때만 토스트 팝업 활성화
-                st.toast("❌ 오타가 났어요! 다시 집중해 봐요!", icon="⚠️")
+                
+                # 터지는 애니메이션용 데이터로 복사 (🫧 텍스트 뒤에 귀여운 방울 추가)
+                matched_target["text"] = matched_target["text"] + " 🫧"
+                st.session_state["popped_words"].append(matched_target)
 
     # [단어 하강 연산]
     current_time = time.time()
@@ -171,10 +204,11 @@ if st.session_state["game_active"]:
         st.session_state["game_active"] = False
         st.error("😭 가뭄이 찾아왔어요! 대지가 메말라 게임이 종료되었습니다. 다시 도전해 보세요! 🧱")
         st.session_state["words"] = []
+        st.session_state["popped_words"] = []
         st.rerun()
 
-    # [신규 단어 스폰] 중복 단어 낙하도 게임의 재미 요소이므로 pool 내 무작위 생성 허용
-    if current_time - st.session_state["last_spawn_time"] > 2.0 and len(st.session_state["words"]) < 4:
+    # [신규 단어 스폰] 1.8초마다 하늘에서 무작위 단어 생성
+    if current_time - st.session_state["last_spawn_time"] > 1.8 and len(st.session_state["words"]) < 4:
         new_word = {
             "text": random.choice(WORD_POOL),
             "top": 10,                 
@@ -185,13 +219,19 @@ if st.session_state["game_active"]:
 
     # 8. 실시간 게임 화면 그리기
     words_html = ""
+    
+    # 일반 흐르는 단어들 레이어
     for w in st.session_state["words"]:
         words_html += f"<div class='word-drop' style='top: {w['top']}px; left: {w['left']}%;'>{w['text']}</div>"
+        
+    # 🎉 터지는 비눗방울 단어들 레이어 (잠깐 나타났다 사라짐)
+    for pw in st.session_state["popped_words"]:
+        words_html += f"<div class='word-pop' style='top: {pw['top']}px; left: {pw['left']}%;'>{pw['text']}</div>"
 
     st.html(f"<div class='game-board'>{words_html}</div>")
 
-    # 0.5초마다 루프 재생성
-    time.sleep(0.5)
+    # 0.4초마다 프레임 갱신
+    time.sleep(0.4)
     st.rerun()
 
 else:
