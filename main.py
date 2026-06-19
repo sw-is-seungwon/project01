@@ -56,7 +56,7 @@ st.html(
         color: #444;
         box-shadow: 0px 3px 6px rgba(0,0,0,0.05);
     }
-    /* 🎉 비눗방울처럼 팡! 터지는 팝 애니메이션 클래스 */
+    /* 비눗방울처럼 팡! 터지는 팝 애니메이션 클래스 */
     .word-pop {
         position: absolute;
         background-color: #E8F5E9;
@@ -70,19 +70,9 @@ st.html(
     }
 
     @keyframes bubblePop {
-        0% {
-            transform: scale(1);
-            opacity: 1;
-        }
-        50% {
-            transform: scale(1.4) translateY(-10px);
-            background-color: #FFF0F2;
-            opacity: 0.8;
-        }
-        100% {
-            transform: scale(1.8) translateY(-20px);
-            opacity: 0;
-        }
+        0% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.4) translateY(-10px); background-color: #FFF0F2; opacity: 0.8; }
+        100% { transform: scale(1.8) translateY(-20px); opacity: 0; }
     }
 
     /* 점수판 스타일 */
@@ -100,11 +90,19 @@ st.html(
         font-weight: bold;
         color: #555;
     }
+    /* 게임 오버 및 타임오버 전광판 */
+    .game-over-box {
+        background-color: white;
+        padding: 40px;
+        border-radius: 25px;
+        border: 3px double #FF8E9E;
+        text-align: center;
+        box-shadow: 0px 10px 25px rgba(255, 142, 158, 0.2);
+    }
     </style>
     """
 )
 
-# 예쁜 봄날 관련 단어 소스 리스트
 WORD_POOL = [
     "벚꽃", "민들레", "개나리", "봄바람", "새싹", "나비", "햇살", "비눗방울", 
     "피크닉", "무지개", "도시락", "라일락", "푸른하늘", "꿀벌", "따스함", "초록잎",
@@ -114,6 +112,8 @@ WORD_POOL = [
 # 3. 게임 내부 상태 세션 초기화
 if "game_active" not in st.session_state:
     st.session_state["game_active"] = False
+if "game_status" not in st.session_state:
+    st.session_state["game_status"] = "ready"  # ready, playing, gameover, timeout
 if "score" not in st.session_state:
     st.session_state["score"] = 0
 if "life" not in st.session_state:
@@ -121,7 +121,9 @@ if "life" not in st.session_state:
 if "words" not in st.session_state:
     st.session_state["words"] = []  
 if "popped_words" not in st.session_state:
-    st.session_state["popped_words"] = []  # 터지는 효과 중인 단어 보관소
+    st.session_state["popped_words"] = []  
+if "start_time" not in st.session_state:
+    st.session_state["start_time"] = 0.0
 if "last_spawn_time" not in st.session_state:
     st.session_state["last_spawn_time"] = time.time()
 
@@ -132,62 +134,73 @@ st.html("<div class='sub-title'>하늘에서 내려오는 예쁜 단어들을 �
 # 5. 게임 컨트롤 버튼들
 col_btn1, col_btn2 = st.columns(2)
 with col_btn1:
-    if st.button("🌱 게임 시작하기", use_container_width=True):
+    if st.button("🌱 게임 시작하기 (3분 제한)", use_container_width=True):
         st.session_state["game_active"] = True
+        st.session_state["game_status"] = "playing"
         st.session_state["score"] = 0
         st.session_state["life"] = 5
         st.session_state["words"] = []
         st.session_state["popped_words"] = []
+        st.session_state["start_time"] = time.time() # 시작 시간 기록
         st.session_state["last_spawn_time"] = time.time()
         st.rerun()
 
 with col_btn2:
     if st.button("🛑 게임 멈추기", use_container_width=True):
         st.session_state["game_active"] = False
+        st.session_state["game_status"] = "ready"
         st.rerun()
 
-# 6. 상단 스탯 표시창
+# 제한시간 계산 (3분 = 180초)
+time_left = 180
+if st.session_state["game_active"]:
+    elapsed = int(time.time() - st.session_state["start_time"])
+    time_left = max(0, 180 - elapsed)
+    
+    # ⏱️ 시간이 종료되었을 때 판정
+    if time_left <= 0:
+        st.session_state["game_active"] = False
+        st.session_state["game_status"] = "timeout"
+        st.rerun()
+
+# 6. 상단 스탯 표시창 (남은 시간 추가)
+min_str = f"{time_left // 60:02d}"
+sec_str = f"{time_left % 60:02d}"
 st.html(f"""
 <div class='status-container'>
+    <div class='status-item'>⏱️ 남은 시간: <span style='color:#4EA8DE;'>{min_str}:{sec_str}</span></div>
     <div class='status-item'>💯 점수: <span style='color:#FF8E9E;'>{st.session_state['score']} 점</span></div>
-    <div class='status-item'>❤️ 남은 대지의 수분: <span style='color:#77A605;'>{"💧" * st.session_state['life'] if st.session_state['life'] > 0 else "🧱 메마름"}</span></div>
+    <div class='status-item'>❤️ 대지 수분: <span style='color:#77A605;'>{"💧" * st.session_state['life'] if st.session_state['life'] > 0 else "🧱"}</span></div>
 </div>
 """)
 
-# 7. 게임 메인 로직
-if st.session_state["game_active"]:
-    
-    # 터지는 연출이 끝난 비눗방울들은 리스트에서 비워주기
+# 7. 게임 진행 상태별 화면 출력
+if st.session_state["game_status"] == "playing" and st.session_state["game_active"]:
     st.session_state["popped_words"] = []
 
-    # 💥 입력 처리 및 중복 단어 동시 삭제 버그 해결
+    # 입력 처리
     with st.form(key="typer_form", clear_on_submit=True):
         user_input = st.text_input("✍ Input Word", placeholder="여기에 입력하세요", label_visibility="collapsed")
         st.html("<div style='display:none;'>")
-        submit_word = st.form_submit_button("⌨️ 정답 확인")
+        submit_word = st.form_submit_button("⌨️")
         st.html("</div>")
 
         if user_input and user_input.strip() != "":
             input_clean = user_input.strip()
             matched_target = None
             
-            # 🛠️ [중복 제거 버그 완전 차단] 
-            # 가장 바닥에 가까운(top이 가장 큰) 단어 '딱 하나'만 골라냅니다.
             for w in st.session_state["words"]:
                 if w["text"] == input_clean:
                     if matched_target is None or w["top"] > matched_target["top"]:
                         matched_target = w
 
-            # 매칭된 단어가 있다면 리스트에서 제거하고 이펙트 창으로 보냄
             if matched_target is not None:
                 st.session_state["words"].remove(matched_target)
                 st.session_state["score"] += 10
-                
-                # 터지는 애니메이션용 데이터로 복사 (🫧 텍스트 뒤에 귀여운 방울 추가)
                 matched_target["text"] = matched_target["text"] + " 🫧"
                 st.session_state["popped_words"].append(matched_target)
 
-    # [단어 하강 연산]
+    # 단어 하강 연산
     current_time = time.time()
     alive_words = []
     for w in st.session_state["words"]:
@@ -199,15 +212,13 @@ if st.session_state["game_active"]:
             
     st.session_state["words"] = alive_words
 
-    # 게임 오버 체크
+    # 라이프 소진으로 인한 게임 오버 체크
     if st.session_state["life"] <= 0:
         st.session_state["game_active"] = False
-        st.error("😭 가뭄이 찾아왔어요! 대지가 메말라 게임이 종료되었습니다. 다시 도전해 보세요! 🧱")
-        st.session_state["words"] = []
-        st.session_state["popped_words"] = []
+        st.session_state["game_status"] = "gameover"
         st.rerun()
 
-    # [신규 단어 스폰] 1.8초마다 하늘에서 무작위 단어 생성
+    # 신규 단어 스폰
     if current_time - st.session_state["last_spawn_time"] > 1.8 and len(st.session_state["words"]) < 4:
         new_word = {
             "text": random.choice(WORD_POOL),
@@ -217,22 +228,44 @@ if st.session_state["game_active"]:
         st.session_state["words"].append(new_word)
         st.session_state["last_spawn_time"] = current_time
 
-    # 8. 실시간 게임 화면 그리기
+    # 실시간 게임 화면 그리기
     words_html = ""
-    
-    # 일반 흐르는 단어들 레이어
     for w in st.session_state["words"]:
         words_html += f"<div class='word-drop' style='top: {w['top']}px; left: {w['left']}%;'>{w['text']}</div>"
-        
-    # 🎉 터지는 비눗방울 단어들 레이어 (잠깐 나타났다 사라짐)
     for pw in st.session_state["popped_words"]:
         words_html += f"<div class='word-pop' style='top: {pw['top']}px; left: {pw['left']}%;'>{pw['text']}</div>"
 
     st.html(f"<div class='game-board'>{words_html}</div>")
 
-    # 0.4초마다 프레임 갱신
     time.sleep(0.4)
     st.rerun()
+
+elif st.session_state["game_status"] == "timeout":
+    # 🏁 3분 종료 기쁨의 대형 전광판 
+    st.html(f"""
+        <div class='game-over-box'>
+            <h1 style='color: #77A605; margin-top:0;'>🎉 제한시간 종료! 🎉</h1>
+            <p style='font-size: 1.4rem; color: #555;'>3분 동안 대지를 안전하게 지켜내셨습니다!</p>
+            <div style='font-size: 3.5rem; font-weight: bold; color: #FF8E9E; margin: 25px 0;'>
+                🏆 {st.session_state['score']} 점
+            </div>
+            <p style='color: #888;'>[게임 시작하기]를 누르면 언제든 다시 도전할 수 있어요 🌱</p>
+        </div>
+    """)
+    st.balloons() # 3분 완주 축하 풍선
+
+elif st.session_state["game_status"] == "gameover":
+    # 💔 라이프 소진 대형 전광판
+    st.html(f"""
+        <div class='game-over-box' style='border-color: #aaa;'>
+            <h1 style='color: #777; margin-top:0;'>🧱 대지가 메말랐어요 😭</h1>
+            <p style='font-size: 1.2rem; color: #666;'>가뭄이 찾아와 게임이 도중에 종료되었습니다.</p>
+            <div style='font-size: 3rem; font-weight: bold; color: #777; margin: 20px 0;'>
+                최종 점수: {st.session_state['score']} 점
+            </div>
+            <p style='color: #888;'>다시 도전해서 3분 완주를 달성해 보세요! 🌱</p>
+        </div>
+    """)
 
 else:
     # 게임 시작 전 대기 화면
@@ -240,7 +273,7 @@ else:
         """
         <div class='game-board' style='display:flex; justify-content:center; align-items:center; flex-direction:column; color:#888;'>
             <div style='font-size:1.5rem; margin-bottom:10px;'>🌱 준비가 되셨나요?</div>
-            <div style='font-size:1rem;'>[게임 시작하기] 버튼을 누르면 단비 단어들이 내려옵니다!</div>
+            <div style='font-size:1rem;'>[게임 시작하기] 버튼을 누르면 3분 동안 단비 게임이 시작됩니다!</div>
         </div>
         """
     )
